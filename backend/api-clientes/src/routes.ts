@@ -3,11 +3,13 @@ import { db, parseId } from '@geroncio/shared-db'
 
 const routes = Router()
 
+// Listar todos os clientes
 routes.get('/clientes', async (req, res) => {
   const clientes = await db.cliente.findMany()
   res.json(clientes)
 })
 
+// Buscar cliente por ID
 routes.get('/clientes/:id', async (req, res) => {
   const id = parseId(req.params.id)
   if (id === null) {
@@ -23,6 +25,7 @@ routes.get('/clientes/:id', async (req, res) => {
   res.json(cliente)
 })
 
+// Criar cliente
 routes.post('/clientes', async (req, res) => {
   const { nomeCliente, endereco, telefone, email, cpf } = req.body
 
@@ -35,6 +38,43 @@ routes.post('/clientes', async (req, res) => {
     data: { nomeCliente, endereco, telefone, email, cpf },
   })
   res.status(201).json(cliente)
+})
+
+// Atualizar cliente
+routes.put('/clientes/:id', async (req, res) => {
+  const id = parseId(req.params.id)
+  if (id === null) {
+    res.status(400).json({ error: 'Id inválido' })
+    return
+  }
+
+  const { nomeCliente, endereco, telefone, email, cpf } = req.body
+
+  try {
+    const cliente = await db.cliente.update({
+      where: { id },
+      data: { nomeCliente, endereco, telefone, email, cpf },
+    })
+    res.json(cliente)
+  } catch {
+    res.status(404).json({ error: 'Cliente não encontrado' })
+  }
+})
+
+// Deletar cliente
+routes.delete('/clientes/:id', async (req, res) => {
+  const id = parseId(req.params.id)
+  if (id === null) {
+    res.status(400).json({ error: 'Id inválido' })
+    return
+  }
+
+  try {
+    await db.cliente.delete({ where: { id } })
+    res.status(204).send()
+  } catch {
+    res.status(404).json({ error: 'Cliente não encontrado' })
+  }
 })
 
 export default routes
