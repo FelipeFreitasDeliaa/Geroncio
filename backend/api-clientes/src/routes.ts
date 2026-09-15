@@ -3,11 +3,13 @@ import { db, parseId } from '@geroncio/shared-db'
 
 const routes = Router()
 
+// Listar todos os clientes
 routes.get('/clientes', async (req, res) => {
   const clientes = await db.cliente.findMany()
   res.json(clientes)
 })
 
+// Buscar cliente por ID
 routes.get('/clientes/:id', async (req, res) => {
   const id = parseId(req.params.id)
   if (id === null) {
@@ -23,6 +25,7 @@ routes.get('/clientes/:id', async (req, res) => {
   res.json(cliente)
 })
 
+// Criar cliente
 routes.post('/clientes', async (req, res) => {
   const { nomeCliente, endereco, telefone, email, cpf } = req.body
 
@@ -36,13 +39,6 @@ routes.post('/clientes', async (req, res) => {
   })
   res.status(201).json(cliente)
 })
-
-routes.put('/clientes/:id', async (req, res) => {
-  const id = parseId(req.params.id)
-  if (id === null) {
-    res.status(400).json({ error: 'Id inválido' })
-    return
-  }
 
   const clienteExistente = await db.cliente.findUnique({ where: { id } })
   if (!clienteExistente) {

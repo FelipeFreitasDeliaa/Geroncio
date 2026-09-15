@@ -3,8 +3,11 @@ import { db, parseId } from '@geroncio/shared-db'
 
 const routes = Router()
 
-// --- RESTAURANTES ---
+// ============================================
+// RESTAURANTES
+// ============================================
 
+// CREATE
 routes.post('/restaurantes', async (req, res) => {
   const { cnpj, nome, email, telefone, cep, cidade, endereco } = req.body
 
@@ -19,11 +22,13 @@ routes.post('/restaurantes', async (req, res) => {
   res.status(201).json(restaurante)
 })
 
+// READ (todos)
 routes.get('/restaurantes', async (req, res) => {
   const restaurantes = await db.restaurante.findMany()
   res.json(restaurantes)
 })
 
+// READ (um)
 routes.get('/restaurantes/:id', async (req, res) => {
   const id = parseId(req.params.id)
   if (id === null) {
