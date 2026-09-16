@@ -22,5 +22,8 @@
       "onFail": "download"
     }
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "npx": "^10.2.2"
+  }
 }
