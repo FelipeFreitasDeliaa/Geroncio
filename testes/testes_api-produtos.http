@@ -8,8 +8,8 @@ POST {{baseUrl}}/produtos
 Content-Type: application/json
 
 {
-  "nome": "Espetinho de carne",
-  "preco": 29.90,
+  "nome": "Espetinho de frango",
+  "preco": 17.90,
   "restauranteId": 1
 }
 

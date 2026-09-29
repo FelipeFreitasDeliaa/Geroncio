@@ -40,6 +40,14 @@ routes.post('/clientes', async (req, res) => {
   res.status(201).json(cliente)
 })
 
+// Atualizar cliente
+routes.put('/clientes/:id', async (req, res) => {
+  const id = parseId(req.params.id)
+  if (id === null) {
+    res.status(400).json({ error: 'Id inválido' })
+    return
+  }
+
   const clienteExistente = await db.cliente.findUnique({ where: { id } })
   if (!clienteExistente) {
     res.status(404).json({ error: 'Cliente não encontrado' })
@@ -56,6 +64,7 @@ routes.post('/clientes', async (req, res) => {
   res.json(clienteAtualizado)
 })
 
+// Deletar cliente
 routes.delete('/clientes/:id', async (req, res) => {
   const id = parseId(req.params.id)
   if (id === null) {

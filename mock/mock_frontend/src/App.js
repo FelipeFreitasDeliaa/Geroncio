@@ -4,7 +4,7 @@ import './App.css';
 // Endereço da API do mock (mock_backend/mock_api), que grava os pedidos no banco do mock
 const API_URL = process.env.REACT_APP_MOCK_API_URL || 'http://localhost:3333';
 // Endereço da api-produtos do Gerencio (backend/api-produtos), de onde vem o cardápio
-const PRODUTOS_API_URL = process.env.REACT_APP_PRODUTOS_API_URL || 'http://localhost:3004/api';
+const PRODUTOS_API_URL = process.env.REACT_APP_PRODUTOS_API_URL || 'http://localhost:3004';
 
 // A api-produtos não tem imagem; mostra um ícone no lugar quando o produto não tiver
 function ImagemProduto({ produto, tamanho }) {
@@ -108,7 +108,7 @@ export default function App() {
       const resposta = await fetch(`${API_URL}/pedidos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plataforma: appSelecionado, restauranteId: String(produtosNoCarrinho[0].restauranteId), cliente: { nome }, endereco, itens })
+        body: JSON.stringify({ plataforma: appSelecionado, restauranteId: Number(produtosNoCarrinho[0].restauranteId), cliente: { nome }, endereco, itens })
       });
       const pedido = await resposta.json();
       if (!resposta.ok) throw new Error(pedido.erro || `Erro ${resposta.status}`);

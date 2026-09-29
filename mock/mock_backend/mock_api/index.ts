@@ -10,6 +10,9 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, Prisma } from "../../src/generated/prisma/client.ts";
 import type { Plataforma, TipoPedido, EntreguePor, CanalEvento } from "../../src/generated/prisma/enums.ts";
 
+// 1. Importação do handler específico do iFood
+import { tratarRequisicaoIFood } from "../ifood/index.ts";
+
 const PORTA = Number(process.env["MOCK_API_PORT"] ?? 3333);
 const RESTAURANTE_ID_PADRAO = process.env["MOCK_RESTAURANTE_ID"] ?? "restaurante-mock";
 
@@ -225,8 +228,6 @@ async function criarPedido(corpo: any) {
     prazoAceiteEm: new Date(agora.getTime() + config.prazoAceiteSegundos * 1000),
   };
 
-  // Payload "nativo" devolvido no GET de detalhes. Os formatos exatos de cada
-  // plataforma podem ser montados nos módulos mock_backend/<plataforma>.
   const payload = { ...dadosPedido, id: idExterno, endereco: endereco === Prisma.DbNull ? null : endereco };
 
   return prisma.pedido.create({
@@ -336,6 +337,10 @@ async function rotear(req: IncomingMessage, res: ServerResponse) {
   if (metodo === "GET" && pathname === "/plataformas") {
     return enviarJson(res, 200, Object.keys(PLATAFORMAS));
   }
+
+  // 2. Tenta tratar chamadas para endpoints iFood antes de cair nas rotas padrão do mock
+  const foiTratadoIFood = await tratarRequisicaoIFood(req, res, pathname, metodo, prisma);
+  if (foiTratadoIFood) return;
 
   if (pathname === "/pedidos") {
     if (metodo === "GET") return enviarJson(res, 200, await listarPedidos(searchParams));

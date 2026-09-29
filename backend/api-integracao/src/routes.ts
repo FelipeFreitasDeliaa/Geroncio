@@ -1,5 +1,6 @@
 import { Router, type Request } from 'express'
 import { db, type Prisma } from '@geroncio/shared-db'
+import { ifoodAdapter } from './adapters/ifood.adapter' // 1. IMPORTAÇÃO ADICIONADA
 
 const routes = Router()
 
@@ -64,8 +65,9 @@ function adapterNaoImplementado(nome: string): AdapterPlataforma {
   }
 }
 
+// 2. ATUALIZAÇÃO DO OBJETO ADAPTERS
 const ADAPTERS: Record<Plataforma, AdapterPlataforma> = {
-  ifood: adapterNaoImplementado('iFood'),
+  ifood: ifoodAdapter as unknown as AdapterPlataforma,
   '99food': adapterNaoImplementado('99Food'),
   keeta: adapterNaoImplementado('Keeta'),
   ubereats: adapterNaoImplementado('Uber Eats'),
@@ -113,7 +115,12 @@ async function salvarPedido(plataforma: Plataforma, pedido: PedidoConvertido) {
   return db.pedido.create({ data })
 }
 
-async function processarNotificacao(plataforma: Plataforma, adapter: AdapterPlataforma, notificacao: NotificacaoPedido) {
+// 3. EXPORTADO PARA USO NO INDEX.TS/POLLER
+export async function processarNotificacao(
+  plataforma: Plataforma,
+  adapter: AdapterPlataforma,
+  notificacao: NotificacaoPedido
+) {
   const pedidoExterno = await adapter.buscarPedido(notificacao)
   const pedido = adapter.converterPedido(pedidoExterno)
   return salvarPedido(plataforma, pedido)
