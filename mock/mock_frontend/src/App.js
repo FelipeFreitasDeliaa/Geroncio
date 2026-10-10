@@ -147,6 +147,7 @@ export default function App() {
               <option value="99 food">99 Food</option>
               <option value="uber eats">Uber Eats</option>
               <option value="keeta">Keeta</option>
+              <option value="rappi">Rappi</option>
             </select>
 
             <label style={{ fontSize: '13px', color: '#ccc', marginBottom: '-10px' }}>Nome do Cliente:</label>
