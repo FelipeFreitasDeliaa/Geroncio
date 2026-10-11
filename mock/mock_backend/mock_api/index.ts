@@ -1,7 +1,7 @@
 // API do mock: recebe os pedidos montados no mock_frontend e grava no banco do mock
 // (Pedido + Evento inicial), simulando o "mundo externo" das plataformas de delivery.
 //
-// Executar a partir de mock/:  pnpm api   (Node >= 22.18 roda TypeScript direto)
+// Executar a partir de mock/:   pnpm api   (Node >= 22.18 roda TypeScript direto)
 
 import "dotenv/config";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -10,6 +10,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, Prisma } from "../../src/generated/prisma/client.ts";
 import type { Plataforma, TipoPedido, EntreguePor, CanalEvento } from "../../src/generated/prisma/enums.ts";
 import { montarPedidoRappi, dispararWebhookNovoPedido as dispararWebhookRappi } from "../rappi/index.ts";
+import { montarPedidoIFood } from "../ifood/index.ts";
 
 const PORTA = Number(process.env["MOCK_API_PORT"] ?? 3333);
 const RESTAURANTE_ID_PADRAO = process.env["MOCK_RESTAURANTE_ID"] ?? "restaurante-mock";
@@ -146,16 +147,6 @@ type ItemEntrada = {
 
 /**
  * POST /pedidos
- * {
- *   plataforma: "ifood" | "99 food" | "uber eats" | "keeta" | "rappi" | enum,
- *   cliente: { nome, telefone?, cpf? } | string,
- *   endereco?: { rua, numero, ... } | string,   // obrigatório quando tipo = ENTREGA
- *   itens: [{ codigoExterno?, nome, quantidade, precoUnitarioCentavos, observacao?, complementos? }],
- *   tipo?: "ENTREGA" | "RETIRADA", entreguePor?: "PLATAFORMA" | "LOJA",
- *   taxaEntregaCentavos?, descontoPlataformaCentavos?, descontoLojaCentavos?,
- *   pagamento?: { pagoOnline, metodo, trocoParaCentavos? },
- *   observacao?, agendadoPara?, restauranteId?, lojaIdExterno?
- * }
  */
 async function criarPedido(corpo: any) {
   const plataforma = normalizarPlataforma(corpo.plataforma);
@@ -226,14 +217,26 @@ async function criarPedido(corpo: any) {
     prazoAceiteEm: new Date(agora.getTime() + config.prazoAceiteSegundos * 1000),
   };
 
-  // Payload "nativo" devolvido no GET de detalhes. Os formatos exatos de cada
-  // plataforma podem ser montados nos módulos mock_backend/<plataforma>.
   const enderecoJson = endereco === Prisma.DbNull ? null : endereco;
+  
+  // Monta o payload no formato nativo da plataforma correspondente
   const pedidoRappi = plataforma === "RAPPI" ? montarPedidoRappi({ ...dadosPedido, itens, endereco: enderecoJson, criadoEm: agora }) : null;
-  const payload = pedidoRappi ?? { ...dadosPedido, id: idExterno, endereco: enderecoJson };
-  // Corpo exato do evento: na Rappi é o próprio corpo do webhook (lista de pedidos)
+  const pedidoIFood = plataforma === "IFOOD" ? montarPedidoIFood({ ...dadosPedido, itens, endereco: enderecoJson, criadoEm: agora }) : null;
+
+  const payload = pedidoRappi ?? pedidoIFood ?? { ...dadosPedido, id: idExterno, endereco: enderecoJson };
+  
+  // Define o payload do evento inicial
   const payloadEvento = pedidoRappi
     ? [pedidoRappi]
+    : pedidoIFood
+    ? {
+        id: randomUUID(),
+        code: config.tipoEventoNovoPedido,
+        fullCode: config.tipoEventoNovoPedido,
+        orderId: idExterno,
+        merchantId: lojaIdExterno,
+        createdAt: agora.toISOString(),
+      }
     : { tipo: config.tipoEventoNovoPedido, pedidoId: idExterno, lojaId: lojaIdExterno, criadoEm: agora.toISOString() };
 
   const pedido = await prisma.pedido.create({
@@ -254,10 +257,21 @@ async function criarPedido(corpo: any) {
   });
 
   if (pedidoRappi) void notificarWebhookRappi(pedido.eventos[0]!.id, pedidoRappi);
+  if (pedidoIFood) {
+    void fetch("http://localhost:3005/api/webhooks/ifood", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify([payloadEvento]),
+    })
+      .then((res) => {
+        if (!res.ok) console.error(`[ifood] Webhook retornou status HTTP ${res.status}`);
+      })
+      .catch((erro) => console.error("[ifood] Erro ao disparar webhook automático:", erro));
+  }
   return pedido;
 }
 
-/** Dispara o webhook em segundo plano e registra a tentativa no evento. */
+/** Dispara o webhook da Rappi em segundo plano e registra a tentativa no evento. */
 async function notificarWebhookRappi(eventoId: string, pedidoRappi: Parameters<typeof dispararWebhookRappi>[0][number]) {
   const resultado = await dispararWebhookRappi([pedidoRappi]);
   if (!resultado.ok) console.warn(`[rappi] Webhook falhou (${resultado.statusHttp ?? resultado.erro})`);
@@ -289,7 +303,7 @@ async function buscarPedido(id: string) {
   return pedido;
 }
 
-/** PATCH /pedidos/:id/status  { status, tipoEvento? } — altera o status e registra um evento */
+/** PATCH /pedidos/:id/status */
 async function atualizarStatus(id: string, corpo: any) {
   if (!corpo.status || typeof corpo.status !== "string") throw new ErroHttp(400, '"status" é obrigatório');
   const pedido = await buscarPedido(id);
@@ -359,6 +373,55 @@ async function rotear(req: IncomingMessage, res: ServerResponse) {
     return enviarJson(res, 200, Object.keys(PLATAFORMAS));
   }
 
+  // ---------------------------------------------------------------------------
+  // Endpoints da API iFood Merchant v1.0 (Polling)
+  // ---------------------------------------------------------------------------
+  if (pathname === "/v1.0/events:poll" && metodo === "GET") {
+    const eventosPendentes = await prisma.evento.findMany({
+      where: { plataforma: "IFOOD", canal: "POLLING", ackEm: null },
+      orderBy: { criadoEm: "asc" },
+      take: 50,
+    });
+
+    if (eventosPendentes.length === 0) {
+      return enviarJson(res, 200, []);
+    }
+
+    const eventosIFood = eventosPendentes.map((e) => e.payload);
+    return enviarJson(res, 200, eventosIFood);
+  }
+
+  if (pathname === "/v1.0/events/acknowledgment" && metodo === "POST") {
+    const ackList = await lerCorpo(req);
+    if (Array.isArray(ackList)) {
+      for (const item of ackList) {
+        const orderId = item.orderId;
+        const id = item.id;
+        if (id || orderId) {
+          await prisma.evento.updateMany({
+            where: {
+              plataforma: "IFOOD",
+              ackEm: null,
+            },
+            data: { ackEm: new Date() },
+          });
+        }
+      }
+    }
+    return enviarJson(res, 202);
+  }
+
+  if ((m = pathname.match(new RegExp(`^/v1.0/orders/${UUID}$`))) && metodo === "GET") {
+    const pedido = await prisma.pedido.findFirst({
+      where: { idExterno: m[1], plataforma: "IFOOD" },
+    });
+    if (!pedido) throw new ErroHttp(404, "Pedido iFood não encontrado");
+    return enviarJson(res, 200, pedido.payload);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Endpoints genéricos do Mock
+  // ---------------------------------------------------------------------------
   if (pathname === "/pedidos") {
     if (metodo === "GET") return enviarJson(res, 200, await listarPedidos(searchParams));
     if (metodo === "POST") return enviarJson(res, 201, await criarPedido(await lerCorpo(req)));

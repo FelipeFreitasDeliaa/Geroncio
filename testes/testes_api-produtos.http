@@ -8,7 +8,7 @@ POST {{baseUrl}}/produtos
 Content-Type: application/json
 
 {
-  "nome": "Espetinho de carne",
+  "nome": "Espetinho de linguiça",
   "preco": 29.90,
   "restauranteId": 1
 }
@@ -42,7 +42,7 @@ PATCH {{baseUrl}}/produtos/1
 Content-Type: application/json
 
 {
-  "preco": 32.50
+  "nome": "Espetinho de carne"
 }
 
 ###
