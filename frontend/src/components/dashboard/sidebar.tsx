@@ -1,3 +1,4 @@
+import { Link, usePathname, type Href } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Divisor, Icone, Texto, type NomeIcone } from './ui';
@@ -5,12 +6,54 @@ import { Divisor, Icone, Texto, type NomeIcone } from './ui';
 import { Espacamento, Raio } from '@/constants/tokens';
 import { useCores } from '@/hooks/use-cores';
 
-const NAVEGACAO: { rotulo: string; icone: NomeIcone }[] = [
-  { rotulo: 'Pedidos', icone: 'pedidos' },
-  { rotulo: 'Estoque', icone: 'estoque' },
-  { rotulo: 'Relatórios', icone: 'relatorios' },
+// A página de Rotas ainda não foi implementada, por isso não tem `href`.
+const NAVEGACAO: { rotulo: string; icone: NomeIcone; href?: Href }[] = [
+  { rotulo: 'Pedidos', icone: 'pedidos', href: '/' },
+  { rotulo: 'Estoque', icone: 'estoque', href: '/estoque' },
+  { rotulo: 'Relatórios', icone: 'relatorios', href: '/relatorios' },
   { rotulo: 'Rotas', icone: 'rotas' },
 ];
+
+function ItensNavegacao() {
+  const cores = useCores();
+  const pathname = usePathname();
+
+  return NAVEGACAO.map(({ rotulo, icone, href }) => {
+    const ativo = href === pathname;
+    // O estilo fica na View interna: o `Link asChild` substitui o `style` do filho direto.
+    const item = (
+      <Pressable
+        key={rotulo}
+        accessibilityRole="link"
+        accessibilityState={{ selected: ativo, disabled: !href }}
+        disabled={!href}>
+        <View style={[styles.item, ativo && { backgroundColor: cores.brand }]}>
+          <Icone nome={icone} cor={ativo ? cores.textOnBrand : cores.textoPrincipal} />
+          <Texto peso={ativo ? 600 : 500} cor={ativo ? 'textOnBrand' : 'textoPrincipal'}>
+            {rotulo}
+          </Texto>
+        </View>
+      </Pressable>
+    );
+    return href ? (
+      <Link key={rotulo} href={href} asChild>
+        {item}
+      </Link>
+    ) : (
+      item
+    );
+  });
+}
+
+/** Navegação em linha, usada quando não há espaço para a sidebar. */
+export function NavegacaoCompacta() {
+  const cores = useCores();
+  return (
+    <View style={[styles.compacta, { backgroundColor: cores.superficie, borderColor: cores.borda }]}>
+      <ItensNavegacao />
+    </View>
+  );
+}
 
 export function Sidebar() {
   const cores = useCores();
@@ -32,22 +75,7 @@ export function Sidebar() {
         <Texto tamanho={13} cor="textoSecundario" style={styles.secao}>
           OPERAÇÃO DO RESTAURANTE
         </Texto>
-        {NAVEGACAO.map(({ rotulo, icone }) => {
-          // As demais páginas ainda não foram implementadas.
-          const ativo = rotulo === 'Pedidos';
-          return (
-            <Pressable
-              key={rotulo}
-              accessibilityRole="link"
-              accessibilityState={{ selected: ativo }}
-              style={[styles.item, ativo && { backgroundColor: cores.brand }]}>
-              <Icone nome={icone} cor={ativo ? cores.textOnBrand : cores.textoPrincipal} />
-              <Texto peso={ativo ? 600 : 500} cor={ativo ? 'textOnBrand' : 'textoPrincipal'}>
-                {rotulo}
-              </Texto>
-            </Pressable>
-          );
-        })}
+        <ItensNavegacao />
       </View>
 
       <View style={styles.rodape}>
@@ -118,6 +146,14 @@ const styles = StyleSheet.create({
     height: 36,
     paddingHorizontal: Espacamento.small,
     borderRadius: Raio.small,
+  },
+  compacta: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Espacamento.small,
+    paddingHorizontal: Espacamento.large,
+    paddingBottom: Espacamento.medium,
+    borderBottomWidth: 1,
   },
   rodape: {
     gap: Espacamento.large,

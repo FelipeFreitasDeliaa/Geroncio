@@ -43,8 +43,12 @@ export const STATUS: Record<
   },
 };
 
-export function formatarReais(valor: number) {
-  return `R$ ${valor.toFixed(2).replace('.', ',')}`;
+export function formatarReais(valor: number, casas = 2) {
+  const numero = valor.toLocaleString('pt-BR', {
+    minimumFractionDigits: casas,
+    maximumFractionDigits: casas,
+  });
+  return `R$ ${numero}`;
 }
 
 export function formatarHora(data: Date) {
