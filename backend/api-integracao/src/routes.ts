@@ -11,16 +11,16 @@ const routes = Router()
 /** Request com o corpo original preservado pelo express.json (ver server.ts). */
 export type RequestComCorpoBruto = Request & { corpoBruto?: Buffer }
 
-/** Plataformas que notificam novos pedidos via webhook. */
+/** Plataformas que notificam novos pedidos via webhook ou polling. */
 type Plataforma = 'ifood' | '99food' | 'keeta' | 'ubereats' | 'rappi'
 
-/** Notificação já normalizada, extraída do corpo do webhook. */
+/** Notificação já normalizada, extraída do corpo do webhook ou do poller. */
 interface NotificacaoPedido {
   eventoId: string
   pedidoIdExterno: string
   lojaIdExterno?: string
   tipo: string
-  /** Pedido completo, quando a plataforma já o envia no próprio webhook (ex.: Rappi). */
+  /** Pedido completo, quando a plataforma já o envia no próprio evento (ex.: Rappi). */
   pedido?: unknown
 }
 
@@ -44,9 +44,9 @@ interface PedidoConvertido {
 
 /** Contrato que cada plataforma precisa implementar. */
 interface AdapterPlataforma {
-  /** Valida a autenticidade do webhook (assinatura, token, etc.). */
+  /** Valida a autenticidade do webhook/requisição (assinatura, token, etc.). */
   validarAssinatura(req: Request): boolean
-  /** Extrai do corpo do webhook as notificações de novo pedido (ignora outros eventos). */
+  /** Extrai do corpo as notificações de novo pedido (ignora outros eventos). */
   extrairNotificacoes(corpo: any): NotificacaoPedido[]
   /** Faz a requisição à API da plataforma para buscar os dados completos do pedido. */
   buscarPedido(notificacao: NotificacaoPedido): Promise<unknown>
@@ -70,10 +70,77 @@ function adapterNaoImplementado(nome: string): AdapterPlataforma {
   }
 }
 
+// iFood: Merchant API v1.0
+const ifood: AdapterPlataforma = {
+  validarAssinatura(req) {
+    return true // Em ambiente de desenvolvimento / mock
+  },
+
+  extrairNotificacoes(corpo) {
+    const eventos = Array.isArray(corpo) ? corpo : [corpo]
+    return eventos
+      .filter((e) => e && (e.code === 'PLACED' || e.fullCode === 'PLACED' || e.tipo === 'PLACED'))
+      .map((e) => ({
+        eventoId: e.id ?? `ifood-evt-${e.orderId ?? e.pedidoId}`,
+        pedidoIdExterno: String(e.orderId ?? e.pedidoId),
+        lojaIdExterno: e.merchantId ? String(e.merchantId) : undefined,
+        tipo: e.code ?? e.fullCode ?? e.tipo ?? 'PLACED',
+      }))
+  },
+
+  async buscarPedido(notificacao) {
+    const urlBase = process.env.IFOOD_API_URL ?? 'http://localhost:3333'
+    const resposta = await fetch(`${urlBase}/v1.0/orders/${notificacao.pedidoIdExterno}`)
+
+    if (!resposta.ok) {
+      throw new Error(`Erro ao buscar pedido ${notificacao.pedidoIdExterno} no iFood: status ${resposta.status}`)
+    }
+
+    return resposta.json()
+  },
+
+  converterPedido(pedidoIFood: any) {
+    const cliente = pedidoIFood.customer
+    const entrega = pedidoIFood.delivery?.deliveryAddress
+    const total = pedidoIFood.total
+    const pagamento = pedidoIFood.payments?.methods?.[0]
+
+    const nomeCliente = cliente?.name ?? null
+
+    let enderecoDestino = ''
+    if (entrega) {
+      if (entrega.formattedAddress) {
+        enderecoDestino = entrega.formattedAddress
+      } else {
+        const partes = [
+          entrega.streetName && `${entrega.streetName}, ${entrega.streetNumber ?? 'S/N'}`,
+          entrega.neighborhood,
+          entrega.city,
+        ].filter(Boolean)
+        enderecoDestino = partes.join(' - ')
+      }
+    }
+
+    const cepDestino = entrega?.postalCode ?? ''
+
+    return {
+      nomeCliente,
+      preco: Number(total?.orderAmount ?? 0),
+      metodoPagamento: pagamento?.type === 'ONLINE' ? 'cartao' : 'dinheiro',
+      enderecoDestino,
+      cepDestino,
+      latitude: null,
+      longitude: null,
+      itens: (pedidoIFood.items ?? []).map((item: any) => ({
+        idExterno: String(item.externalCode ?? item.id),
+        quantidade: Number(item.quantity),
+      })),
+    }
+  },
+}
 
 // Rappi: o webhook de novo pedido envia uma LISTA com os pedidos completos
 // ({ order_detail, customer, store }), então não é preciso buscá-los na API.
-// Valores monetários em reais.
 const rappi: AdapterPlataforma = {
   validarAssinatura(req) {
     const segredo = process.env.RAPPI_WEBHOOK_SECRET
@@ -216,7 +283,7 @@ const ubereats: AdapterPlataforma = {
 };
 
 const ADAPTERS: Record<Plataforma, AdapterPlataforma> = {
-  ifood: adapterNaoImplementado('iFood'),
+  ifood,
   '99food': adapterNaoImplementado('99Food'),
   keeta: adapterNaoImplementado('Keeta'),
   ubereats,
@@ -273,8 +340,8 @@ async function processarNotificacao(plataforma: Plataforma, adapter: AdapterPlat
 // Rotas
 // ---------------------------------------------------------------------------
 
-// 1. WEBHOOK DE NOVOS PEDIDOS
-// URL a ser configurada no painel de cada app: POST /api/webhooks/:plataforma
+// WEBHOOK / NOTIFICAÇÃO DE NOVOS PEDIDOS
+// POST /api/webhooks/:plataforma
 routes.post('/webhooks/:plataforma', async (req, res) => {
   const plataforma = req.params.plataforma.toLowerCase() as Plataforma
   const adapter = obterAdapter(plataforma)

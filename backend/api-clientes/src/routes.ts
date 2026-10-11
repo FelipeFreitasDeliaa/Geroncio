@@ -63,6 +63,7 @@ routes.put('/clientes/:id', async (req, res) => {
   res.json(clienteAtualizado)
 })
 
+// Eliminar cliente
 routes.delete('/clientes/:id', async (req, res) => {
   const id = parseId(req.params.id)
   if (id === null) {

@@ -1,7 +1,7 @@
 // API do mock: recebe os pedidos montados no mock_frontend e grava no banco do mock
 // (Pedido + Evento inicial), simulando o "mundo externo" das plataformas de delivery.
 //
-// Executar a partir de mock/:  pnpm api   (Node >= 22.18 roda TypeScript direto)
+// Executar a partir de mock/:   pnpm api   (Node >= 22.18 roda TypeScript direto)
 
 import "dotenv/config";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -10,6 +10,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, Prisma } from "../../src/generated/prisma/client.ts";
 import type { Plataforma, TipoPedido, EntreguePor, CanalEvento } from "../../src/generated/prisma/enums.ts";
 import { montarPedidoRappi, dispararWebhookNovoPedido as dispararWebhookRappi } from "../rappi/index.ts";
+import { montarPedidoIFood } from "../ifood/index.ts";
 
 import { montarPedidoUber, dispararWebhookUber, dispararWebhookFalhaUber } from "../uber/index.ts";
 
@@ -223,34 +224,45 @@ async function criarPedido(corpo: any) {
     prazoAceiteEm: new Date(agora.getTime() + config.prazoAceiteSegundos * 1000),
   };
 
+
  // Payload "nativo" devolvido no GET de detalhes. Os formatos exatos de cada
 // plataforma podem ser montados nos módulos mock_backend/<plataforma>.
 const enderecoJson = endereco === Prisma.DbNull ? null : endereco;
 
-const pedidoRappi = plataforma === "RAPPI" 
-  ? montarPedidoRappi({ ...dadosPedido, itens, endereco: enderecoJson, criadoEm: agora }) 
+const pedidoRappi = plataforma === "RAPPI"
+  ? montarPedidoRappi({ ...dadosPedido, itens, endereco: enderecoJson, criadoEm: agora })
   : null;
 
-const pedido99 = plataforma === "NOVENTA_NOVE_FOOD" 
-  ? montarPedido99Food({ ...dadosPedido, itens, endereco: enderecoJson, criadoEm: agora }) 
+const pedidoIFood = plataforma === "IFOOD"
+  ? montarPedidoIFood({ ...dadosPedido, itens, endereco: enderecoJson, criadoEm: agora })
   : null;
 
-const pedidoUber = plataforma === "UBER_EATS" 
-  ? montarPedidoUber({ ...dadosPedido, itens, endereco: enderecoJson, criadoEm: agora }) 
+const pedido99 = plataforma === "NOVENTA_NOVE_FOOD"
+  ? montarPedido99Food({ ...dadosPedido, itens, endereco: enderecoJson, criadoEm: agora })
   : null;
 
-const payload = pedidoRappi ?? pedido99 ?? pedidoUber ?? { ...dadosPedido, id: idExterno, endereco: enderecoJson };
+const pedidoUber = plataforma === "UBER_EATS"
+  ? montarPedidoUber({ ...dadosPedido, itens, endereco: enderecoJson, criadoEm: agora })
+  : null;
+
+const payload = pedidoRappi ?? pedidoIFood ?? pedido99 ?? pedidoUber ?? { ...dadosPedido, id: idExterno, endereco: enderecoJson };
 
 // Corpo exato do evento:
-//   - Rappi: o próprio corpo do webhook (lista de pedidos)
-//   - 99Food: evento enxuto (só o orderId)
-//   - Outros: payload genérico
 const payloadEvento = pedidoRappi
   ? [pedidoRappi]
+  : pedidoIFood
+  ? {
+      id: randomUUID(),
+      code: config.tipoEventoNovoPedido,
+      fullCode: config.tipoEventoNovoPedido,
+      orderId: idExterno,
+      merchantId: lojaIdExterno,
+      createdAt: agora.toISOString(),
+    }
   : pedido99
-    ? montarEventoNovoPedido99Food(pedido99)
-    : { tipo: config.tipoEventoNovoPedido, pedidoId: idExterno, lojaId: lojaIdExterno, criadoEm: agora.toISOString() };
-
+  ? montarEventoNovoPedido99Food(pedido99)
+  : { tipo: config.tipoEventoNovoPedido, pedidoId: idExterno, lojaId: lojaIdExterno, criadoEm: agora.toISOString() };
+  
   const pedido = await prisma.pedido.create({
     data: {
       ...dadosPedido,
@@ -269,6 +281,17 @@ const payloadEvento = pedidoRappi
   });
 
   if (pedidoRappi) void notificarWebhookRappi(pedido.eventos[0]!.id, pedidoRappi);
+  if (pedidoIFood) {
+    void fetch("http://localhost:3005/api/webhooks/ifood", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify([payloadEvento]),
+    })
+      .then((res) => {
+        if (!res.ok) console.error(`[ifood] Webhook retornou status HTTP ${res.status}`);
+      })
+      .catch((erro) => console.error("[ifood] Erro ao disparar webhook automático:", erro));
+  }
 
   if (pedidoUber) {
     const urlDestino = process.env["UBER_WEBHOOK_URL"] ?? "http://localhost:3005/api/webhooks/ubereats";
@@ -475,6 +498,55 @@ async function rotear(req: IncomingMessage, res: ServerResponse) {
     return enviarJson(res, 200, Object.keys(PLATAFORMAS));
   }
 
+  // ---------------------------------------------------------------------------
+  // Endpoints da API iFood Merchant v1.0 (Polling)
+  // ---------------------------------------------------------------------------
+  if (pathname === "/v1.0/events:poll" && metodo === "GET") {
+    const eventosPendentes = await prisma.evento.findMany({
+      where: { plataforma: "IFOOD", canal: "POLLING", ackEm: null },
+      orderBy: { criadoEm: "asc" },
+      take: 50,
+    });
+
+    if (eventosPendentes.length === 0) {
+      return enviarJson(res, 200, []);
+    }
+
+    const eventosIFood = eventosPendentes.map((e) => e.payload);
+    return enviarJson(res, 200, eventosIFood);
+  }
+
+  if (pathname === "/v1.0/events/acknowledgment" && metodo === "POST") {
+    const ackList = await lerCorpo(req);
+    if (Array.isArray(ackList)) {
+      for (const item of ackList) {
+        const orderId = item.orderId;
+        const id = item.id;
+        if (id || orderId) {
+          await prisma.evento.updateMany({
+            where: {
+              plataforma: "IFOOD",
+              ackEm: null,
+            },
+            data: { ackEm: new Date() },
+          });
+        }
+      }
+    }
+    return enviarJson(res, 202);
+  }
+
+  if ((m = pathname.match(new RegExp(`^/v1.0/orders/${UUID}$`))) && metodo === "GET") {
+    const pedido = await prisma.pedido.findFirst({
+      where: { idExterno: m[1], plataforma: "IFOOD" },
+    });
+    if (!pedido) throw new ErroHttp(404, "Pedido iFood não encontrado");
+    return enviarJson(res, 200, pedido.payload);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Endpoints genéricos do Mock
+  // ---------------------------------------------------------------------------
   if (pathname === "/pedidos") {
     if (metodo === "GET") return enviarJson(res, 200, await listarPedidos(searchParams));
     if (metodo === "POST") return enviarJson(res, 201, await criarPedido(await lerCorpo(req)));
