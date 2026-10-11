@@ -40,7 +40,6 @@ routes.post('/clientes', async (req, res) => {
   res.status(201).json(cliente)
 })
 
-// Atualizar cliente
 routes.put('/clientes/:id', async (req, res) => {
   const id = parseId(req.params.id)
   if (id === null) {
