@@ -3,10 +3,22 @@ import { db, parseId, StatusPedido } from '@geroncio/shared-db'
 
 const routes = Router()
 
-// 1. LISTAR TODOS OS PEDIDOS
+// 1. LISTAR PEDIDOS (opcionalmente filtrando por status: ?status=novo,em_preparo)
 routes.get('/pedidos', async (req, res) => {
+  const filtro = typeof req.query.status === 'string' ? req.query.status.split(',') : []
+  const status = filtro.filter((s): s is StatusPedido =>
+    Object.values(StatusPedido).includes(s as StatusPedido),
+  )
+  if (status.length !== filtro.length) {
+    res.status(400).json({
+      error: `status deve ser um de: ${Object.values(StatusPedido).join(', ')}`,
+    })
+    return
+  }
+
   try {
     const pedidos = await db.pedido.findMany({
+      ...(status.length > 0 && { where: { status: { in: status } } }),
       include: {
         itens: { include: { produto: true } },
         entrega: { include: { entregador: true } },
@@ -137,7 +149,7 @@ routes.patch('/pedidos/:id/status', async (req, res) => {
       where: { id },
       data: { status },
       include: {
-        itens: true,
+        itens: { include: { produto: true } },
         entrega: { include: { entregador: true } },
       },
     })
