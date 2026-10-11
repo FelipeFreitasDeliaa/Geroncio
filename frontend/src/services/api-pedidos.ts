@@ -32,11 +32,15 @@ const CANAIS: Record<string, string> = {
   balcao: 'Balcão',
 };
 
+export function nomeDoCanal(app: string) {
+  return CANAIS[app.toLowerCase().replace(/\s/g, '')] ?? app;
+}
+
 function converter(pedido: PedidoApi): Pedido {
   const entregador = pedido.entrega?.entregador?.nome;
   return {
     numero: pedido.id,
-    canal: CANAIS[pedido.app.toLowerCase().replace(/\s/g, '')] ?? pedido.app,
+    canal: nomeDoCanal(pedido.app),
     cliente: pedido.nomeCliente ?? 'Cliente não identificado',
     horario: formatarHora(new Date(pedido.criadoEm)),
     itens: pedido.itens.map((item) => `${item.quantidade}× ${item.produto.nome}`),
@@ -48,7 +52,7 @@ function converter(pedido: PedidoApi): Pedido {
   };
 }
 
-async function requisitar<T>(caminho: string, init?: RequestInit): Promise<T> {
+export async function requisitar<T>(caminho: string, init?: RequestInit): Promise<T> {
   const resposta = await fetch(`${BASE_URL}${caminho}`, init);
   if (!resposta.ok) {
     throw new Error(`api-pedidos respondeu ${resposta.status}`);
