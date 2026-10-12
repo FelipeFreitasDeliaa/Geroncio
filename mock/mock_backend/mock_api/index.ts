@@ -327,7 +327,7 @@ export async function notificarWebhookUber(eventoId: string, pedidoIdExterno: st
 
       const timer = setTimeout(async () => {
         await verificarTimeoutUber(pedidoIdExterno, lojaIdExterno, webhookUrl);
-      }, 69 * 1000);
+      }, 690 * 1000);
 
       uberTimers.set(pedidoIdExterno, timer);
     }

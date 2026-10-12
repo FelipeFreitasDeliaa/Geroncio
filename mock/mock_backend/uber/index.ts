@@ -48,6 +48,15 @@ export interface UberOrder {
         };
       };
     };
+    deliveries?: Array<{
+      location: {
+        street_address_line_one: string;
+        street_address_line_two: string;
+        postal_code: string;
+        latitude: number;
+        longitude: number;
+      };
+    }>;
     created_time: string;
   };
 }
@@ -81,12 +90,29 @@ const formatarBRL = (centavos: number) => `R$ ${(centavos / 100).toFixed(2).repl
 export function montarPedidoUber(dados: DadosPedidoMock): UberOrder {
   const cliente = dados.cliente ?? {};
   const [firstName = "Cliente", ...lastNames] = String(cliente.nome ?? "").trim().split(/\s+/);
-  const lastName = lastNames.length > 0 ? lastNames.join(" ") : "Uber";
+  const lastName = lastNames.length > 0 ? lastNames.join(" ") : ""; // Correção: nome vazio se não houver sobrenome
 
   const fulfillment_type = 
     dados.tipo === "RETIRADA" ? "PICKUP" : 
     dados.entreguePor === "LOJA" ? "DELIVERY_BY_MERCHANT" : 
     "DELIVERY_BY_UBER";
+
+  // Extração do endereço de entrega
+  let deliveries = undefined;
+  if (dados.tipo === "ENTREGA" && dados.endereco) {
+    const rua = String(dados.endereco.rua ?? "");
+    const numero = String(dados.endereco.numero ?? "");
+    
+    deliveries = [{
+      location: {
+        street_address_line_one: rua,
+        street_address_line_two: numero,
+        postal_code: String(dados.endereco.cep ?? ""),
+        latitude: Number(dados.endereco.lat ?? 0),
+        longitude: Number(dados.endereco.lng ?? 0)
+      }
+    }];
+  }
 
   return {
     order: {
@@ -136,6 +162,7 @@ export function montarPedidoUber(dados: DadosPedidoMock): UberOrder {
           }
         }
       },
+      deliveries, // Adiciona o bloco de entregas ao payload
       created_time: dados.criadoEm.toISOString()
     }
   };
