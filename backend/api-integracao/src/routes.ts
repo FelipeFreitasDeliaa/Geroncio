@@ -237,7 +237,12 @@ const ubereats: AdapterPlataforma = {
     
     const { access_token } = await authRes.json();
 
-    const pedidoRes = await fetch(resourceHref, {
+    // O mock monta o resource_href com localhost; em container, troca a origem pela do MOCK_API_URL
+    const urlPedido = process.env.MOCK_API_URL
+      ? new URL(new URL(resourceHref).pathname, process.env.MOCK_API_URL).toString()
+      : resourceHref;
+
+    const pedidoRes = await fetch(urlPedido, {
       headers: { 'Authorization': `Bearer ${access_token}` }
     });
 
