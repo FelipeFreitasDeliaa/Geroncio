@@ -50,7 +50,9 @@ export default function App() {
   // nunca o id interno do Gerencio. Produto sem mapeamento não existe no cardápio da plataforma.
   const plataformaMapeamento = appSelecionado.replace(/\s/g, ''); // "uber eats" -> "ubereats"
   const codigoExternoPorProduto = new Map(
-    mapeamentos.filter(m => m.plataforma === plataformaMapeamento).map(m => [m.produtoId, m.idExternoApp])
+    mapeamentos
+      .filter(m => String(m.plataforma).toLowerCase() === plataformaMapeamento.toLowerCase())
+      .map(m => [m.produtoId, m.idExternoApp])
   );
   const produtosDaPlataforma = produtos.filter(produto => codigoExternoPorProduto.has(produto.id));
 
